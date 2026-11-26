@@ -271,6 +271,74 @@ jobs:
       shard-archives: true
       shard-command: bash scripts/ci-test-shard.sh
 
+  # Release-style MSI builds for the development branch. The package script validates and
+  # signs only the MSI when -MsiOnly is set; no portable or symbols archives are uploaded.
+  windows-msi:
+    name: Windows MSI (${{ matrix.arch }})
+    needs: [git-sources, gate, windows]
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'v1.0.1-develop' && needs.gate.result == 'success' && needs.windows.result == 'success' }}
+    runs-on: windows-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x64, target: x86_64-pc-windows-msvc }
+          - { arch: x86, target: i686-pc-windows-msvc }
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 0
+      RUST_BACKTRACE: 1
+      CARGO_TARGET_DIR: D:\\t
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check out craft-i18n
+        uses: storytold/craft-common-actions/actions/checkout-craft-i18n@main
+      - name: Check out craft-fonts
+        uses: storytold/craft-common-actions/actions/checkout-craft-fonts@main
+        with:
+          ref: cc9269cd8d8258785dac603fba3122e5d2556795
+      - id: rust
+        uses: storytold/craft-common-actions/actions/rust-channel@f5141455aac7b2eb4708aa259d8ffcdf10fde939
+        with:
+          targets: ${{ matrix.target }}
+      - uses: step-security/dtolnay-rust-toolchain@8dd607977d06adf4ed49b190381e74c17a9dd25f # v1.0.0
+        with:
+          toolchain: ${{ steps.rust.outputs.toolchain }}
+          targets: ${{ steps.rust.outputs.targets }}
+          components: ${{ steps.rust.outputs.components }}
+      - name: Install WiX
+        uses: storytold/craft-common-actions/actions/install-wix@main
+      - name: Build and validate MSI
+        shell: pwsh
+        env:
+          CRAFT_FONTS_DIR: ${{ github.workspace }}\\craft-fonts
+          CRAFT_FONTS_REQUIRED: "1"
+          DIST: ${{ github.workspace }}\\dist\\${{ matrix.arch }}
+        run: ./packaging/windows/package.ps1 -Arch ${{ matrix.arch }} -MsiOnly
+      - name: Verify MSI-only output
+        shell: pwsh
+        env:
+          DIST: ${{ github.workspace }}\\dist\\${{ matrix.arch }}
+        run: |
+          $files = @(Get-ChildItem -LiteralPath $env:DIST -File)
+          if ($files.Count -ne 1 -or $files[0].Extension -ne '.msi') {
+            throw "Expected exactly one MSI in $env:DIST; found: $($files.Name -join ', ')"
+          }
+          Write-Host "Validated MSI output: $($files[0].FullName)"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: photocraft-windows-msi-${{ matrix.arch }}
+          path: dist/${{ matrix.arch }}/*.msi
+          if-no-files-found: error
+          retention-days: 14
+
   # Keeps one Actions cache entry per family on main, so the repository stays within its 10 GB
   # budget and GitHub never evicts an entry a run still needs (an evicted Windows entry makes the
   # Windows build cold, about 60 instead of 21 minutes). It runs beside the run's jobs and prunes

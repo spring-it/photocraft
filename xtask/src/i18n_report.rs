@@ -32,7 +32,7 @@ pub fn run(root: &Path) -> Result<(), String> {
     if english_keys.is_empty() {
         return Err("no source-derived English UI translation keys were found".into());
     }
-    let embedded = embedded(&PathBuf::from(dir).join("locales"))?;
+    let embedded = embedded(&PathBuf::from(dir).join("locales"), &root.join("crates/ui-egui/i18n-overrides"))?;
     let codes: Vec<&str> = languages.iter().map(|l| l.code.as_str()).collect();
     let (i18n, mut problems) = craft_i18n::I18n::new(embedded, &codes);
     problems.extend(i18n.check_all());
@@ -66,7 +66,7 @@ fn translation<'a>(i18n: &'a craft_i18n::I18n, lang: craft_i18n::Lang, key: &'a 
 
 /// The catalogs of every locale under `dir` with a `photocraft.tsv`, as the app's build.rs embeds
 /// them: (locale, shared `common.tsv` or "", `photocraft.tsv`). Read once per run, so leaked.
-fn embedded(dir: &Path) -> Result<&'static craft_i18n::Embedded, String> {
+fn embedded(dir: &Path, overrides: &Path) -> Result<&'static craft_i18n::Embedded, String> {
     let list = fs::read_dir(dir).map_err(|e| format!("{} is not a craft-i18n checkout ({e})", dir.display()))?;
     let mut out: Vec<(&'static str, &'static str, &'static str)> = Vec::new();
     for entry in list {
@@ -75,8 +75,11 @@ fn embedded(dir: &Path) -> Result<&'static craft_i18n::Embedded, String> {
         let Some(code) = path.file_name().and_then(|n| n.to_str()).map(str::to_string) else { continue };
         // A locale without the file is skipped (or reads without a shared catalog); a file that is
         // there but can't be read is an error, not a gap in the coverage.
-        let Some(app) = read_optional(&path.join("photocraft.tsv"))? else { continue };
+        let Some(mut app) = read_optional(&path.join("photocraft.tsv"))? else { continue };
         let shared = read_optional(&path.join("common.tsv"))?.unwrap_or_default();
+        if let Some(overlay) = read_optional(&overrides.join(format!("{code}.tsv")))? {
+            app = merge_catalog(&code, &app, &overlay)?;
+        }
         out.push((Box::leak(code.into_boxed_str()), Box::leak(shared.into_boxed_str()), Box::leak(app.into_boxed_str())));
     }
     if out.is_empty() {
@@ -84,6 +87,53 @@ fn embedded(dir: &Path) -> Result<&'static craft_i18n::Embedded, String> {
     }
     out.sort();
     Ok(Box::leak(out.into_boxed_slice()))
+}
+
+/// Merge fork-local translations for keys that the pinned upstream catalog does not yet contain.
+/// Duplicate keys are rejected instead of silently depending on catalog row order.
+fn merge_catalog(code: &str, base: &str, overlay: &str) -> Result<String, String> {
+    let mut base_keys = HashSet::new();
+    for (line_number, line) in base.lines().enumerate() {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut columns = line.splitn(3, '\t');
+        let context = columns.next().unwrap_or_default();
+        let source = columns.next().ok_or_else(|| format!("{code} upstream catalog line {} has no source column", line_number + 1))?;
+        if columns.next().is_none() {
+            return Err(format!("{code} upstream catalog line {} has no translation column", line_number + 1));
+        }
+        base_keys.insert((context.to_owned(), source.to_owned()));
+    }
+
+    let mut overlay_keys = HashSet::new();
+    for (line_number, line) in overlay.lines().enumerate() {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut columns = line.splitn(3, '\t');
+        let context = columns.next().unwrap_or_default();
+        let source = columns.next().ok_or_else(|| format!("{code} local overlay line {} has no source column", line_number + 1))?;
+        let translation = columns.next().ok_or_else(|| format!("{code} local overlay line {} has no translation column", line_number + 1))?;
+        if translation.is_empty() {
+            return Err(format!("{code} local overlay line {} has an empty translation", line_number + 1));
+        }
+        let key = (context.to_owned(), source.to_owned());
+        if base_keys.contains(&key) {
+            return Err(format!("{code} local overlay duplicates upstream key {:?} / {:?}", key.0, key.1));
+        }
+        if !overlay_keys.insert(key.clone()) {
+            return Err(format!("{code} local overlay repeats key {:?} / {:?}", key.0, key.1));
+        }
+    }
+
+    let mut merged = base.to_owned();
+    if !merged.ends_with('\n') {
+        merged.push('\n');
+    }
+    merged.push_str(overlay.trim_end_matches('\n'));
+    merged.push('\n');
+    Ok(merged)
 }
 
 /// The file's text; `None` when there is no such file, an error naming it when it can't be read.

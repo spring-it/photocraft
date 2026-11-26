@@ -14,7 +14,9 @@
 //!   (a warning), it is empty and the interface is English only; with `CRAFT_I18N_REQUIRED=1` (CI
 //!   and releases) that is an error instead. Recipe: craft-i18n's `docs/integration.md`.
 
+use std::collections::HashSet;
 use std::fmt::Write as _;
+use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
@@ -42,9 +44,12 @@ fn craft_i18n() -> String {
     println!("cargo::rerun-if-env-changed=CRAFT_I18N_DIR");
     println!("cargo::rerun-if-env-changed=CRAFT_I18N_REQUIRED");
     let required = std::env::var("CRAFT_I18N_REQUIRED").is_ok_and(|v| v.trim() == "1");
+    let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").unwrap_or_default());
+    let overrides = Path::new(env!("CARGO_MANIFEST_DIR")).join("i18n-overrides");
+    println!("cargo::rerun-if-changed={}", overrides.display());
     let entries = match std::env::var_os("CRAFT_I18N_DIR").filter(|d| !d.is_empty()) {
-        // Not canonicalized: on Windows that gives `\\?\C:\…`, which `include_str!` can't read.
-        Some(dir) => match locales(&std::path::PathBuf::from(dir).join("locales")) {
+        // Not canonicalized: on Windows that gives `\\?\\C:\\…`, which `include_str!` can't read.
+        Some(dir) => match locales(&PathBuf::from(dir).join("locales"), &overrides, &out_dir) {
             Ok(entries) => entries,
             Err(e) => {
                 let level = if required { "error" } else { "warning" };
@@ -59,7 +64,7 @@ fn craft_i18n() -> String {
             Vec::new()
         }
     };
-    let mut o = String::from("/// (locale, shared catalog, PhotoCraft's catalog), one entry per locale; `\"\"` for a missing file.\n");
+    let mut o = String::from("/// (locale, shared catalog, PhotoCraft's catalog), one entry per locale; `""` for a missing file.\n");
     o.push_str("pub static CRAFT_I18N: &craft_i18n::Embedded = &[\n");
     for (code, shared, app) in entries {
         // `{:?}` escapes the path (Windows backslashes) as a Rust string literal.
@@ -75,7 +80,7 @@ type Locale = (String, Option<std::path::PathBuf>, std::path::PathBuf);
 
 /// Every locale under `dir` with PhotoCraft's catalog, by code. An error when `dir` isn't a
 /// craft-i18n `locales/` directory.
-fn locales(dir: &std::path::Path) -> Result<Vec<Locale>, String> {
+fn locales(dir: &Path, overrides: &Path, out_dir: &Path) -> Result<Vec<Locale>, String> {
     // Build scripts run in the crate's directory and `include_str!` resolves against the
     // generated file, so a relative path would mean two different places.
     if !dir.is_absolute() {
@@ -88,11 +93,23 @@ fn locales(dir: &std::path::Path) -> Result<Vec<Locale>, String> {
     for entry in list.flatten() {
         let path = entry.path();
         let Some(code) = path.file_name().and_then(|n| n.to_str()).map(str::to_string) else { continue };
-        let app = path.join(APP_CATALOG);
-        if !app.is_file() {
+        let upstream_app = path.join(APP_CATALOG);
+        if !upstream_app.is_file() {
             continue;
         }
-        println!("cargo::rerun-if-changed={}", app.display());
+        println!("cargo::rerun-if-changed={}", upstream_app.display());
+        let overlay = overrides.join(format!("{code}.tsv"));
+        let app = if overlay.is_file() {
+            println!("cargo::rerun-if-changed={}", overlay.display());
+            let base = std::fs::read_to_string(&upstream_app).map_err(|e| format!("{}: {e}", upstream_app.display()))?;
+            let extra = std::fs::read_to_string(&overlay).map_err(|e| format!("{}: {e}", overlay.display()))?;
+            let merged = merge_catalog(&code, &base, &extra)?;
+            let merged_path = out_dir.join(format!("photocraft-{code}.tsv"));
+            std::fs::write(&merged_path, merged).map_err(|e| format!("{}: {e}", merged_path.display()))?;
+            merged_path
+        } else {
+            upstream_app
+        };
         let shared = Some(path.join("common.tsv")).filter(|p| p.is_file());
         if let Some(p) = &shared {
             println!("cargo::rerun-if-changed={}", p.display());
@@ -104,6 +121,53 @@ fn locales(dir: &std::path::Path) -> Result<Vec<Locale>, String> {
     }
     out.sort();
     Ok(out)
+}
+
+/// Merge fork-local translations for keys that the pinned upstream catalog does not yet contain.
+/// Duplicate keys are rejected instead of silently depending on catalog row order.
+fn merge_catalog(code: &str, base: &str, overlay: &str) -> Result<String, String> {
+    let mut base_keys = HashSet::new();
+    for (line_number, line) in base.lines().enumerate() {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut columns = line.splitn(3, '\t');
+        let context = columns.next().unwrap_or_default();
+        let source = columns.next().ok_or_else(|| format!("{code} upstream catalog line {} has no source column", line_number + 1))?;
+        if columns.next().is_none() {
+            return Err(format!("{code} upstream catalog line {} has no translation column", line_number + 1));
+        }
+        base_keys.insert((context.to_owned(), source.to_owned()));
+    }
+
+    let mut overlay_keys = HashSet::new();
+    for (line_number, line) in overlay.lines().enumerate() {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut columns = line.splitn(3, '\t');
+        let context = columns.next().unwrap_or_default();
+        let source = columns.next().ok_or_else(|| format!("{code} local overlay line {} has no source column", line_number + 1))?;
+        let translation = columns.next().ok_or_else(|| format!("{code} local overlay line {} has no translation column", line_number + 1))?;
+        if translation.is_empty() {
+            return Err(format!("{code} local overlay line {} has an empty translation", line_number + 1));
+        }
+        let key = (context.to_owned(), source.to_owned());
+        if base_keys.contains(&key) {
+            return Err(format!("{code} local overlay duplicates upstream key {:?} / {:?}", key.0, key.1));
+        }
+        if !overlay_keys.insert(key.clone()) {
+            return Err(format!("{code} local overlay repeats key {:?} / {:?}", key.0, key.1));
+        }
+    }
+
+    let mut merged = base.to_owned();
+    if !merged.ends_with('\n') {
+        merged.push('\n');
+    }
+    merged.push_str(overlay.trim_end_matches('\n'));
+    merged.push('\n');
+    Ok(merged)
 }
 
 fn read<T>(path: &std::path::Path, fallback: &str, parse: impl Fn(&str) -> Result<T, String>) -> Option<T> {

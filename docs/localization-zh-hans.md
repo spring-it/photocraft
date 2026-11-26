@@ -15,9 +15,9 @@ use the repository's MIT OR Apache-2.0 license.
 
 Select **Preferences > Interface > Language > 简体中文**, or set
 `interface.language` to `zh-hans` through the existing `prefs.set` command.
-The native build's **Auto** setting reads `LANG`/`LC_*`, the macOS preferred
-languages and the Windows user locale. `zh`, `zh-CN`, `zh-SG` and `zh-Hans`
-variants resolve to this catalog. Traditional Chinese locales (`zh-TW`, `zh-HK`,
+The native build's **Auto** setting reads the platform's preferred UI languages.
+On Windows it uses `GetUserPreferredUILanguages`, not the Region setting.
+`zh`, `zh-CN`, `zh-SG` and `zh-Hans` variants resolve to this catalog. Traditional Chinese locales (`zh-TW`, `zh-HK`,
 `zh-MO`, `zh-Hant`) resolve to the separate `zh-hant` catalog.
 
 The web build does not detect the browser language automatically; choose the
@@ -25,11 +25,13 @@ language manually there.
 
 ## Files and integration
 
-- `crates/ui-egui/src/i18n/zh-hans.tsv` contains the translations, independent of
-  the lookup implementation. Its UTF-8 columns are `context<TAB>source<TAB>translation`.
+- The pinned `craft-i18n` checkout supplies `locales/zh-hans/photocraft.tsv`
+  and the shared `common.tsv`; `craft-i18n.rev` records the exact commit.
+- `crates/ui-egui/i18n-overrides/zh-hans.tsv` contains fork-local menu translations
+  that are not yet present upstream. The build and `cargo xtask i18n-report` merge
+  this file after the pinned catalog and reject duplicate keys.
 - `crates/ui-egui/src/i18n.rs` registers `zh-hans` with one plural form and
-  `complete_menus: true`. `cargo xtask i18n-coverage` lists any menu string,
-  `tl!` literal or other source key the catalog lacks; those show in English.
+  `complete_menus: true`. The UI tests now fail if any menu path or label is missing.
 - Shortcut templates retain `{key}` so the shell supplies the correct key for
   the current platform. Layer-count messages use one Chinese plural form.
 
