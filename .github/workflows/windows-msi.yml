@@ -21,7 +21,7 @@ permissions:
 jobs:
   windows-msi:
     name: Windows MSI (${{ matrix.arch }})
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.ref == 'v1.0.1-develop' }}
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.ref == 'v1.0.1-develop' || github.event.pull_request.head.ref == 'windows-msi-workflow' }}
     runs-on: windows-latest
     timeout-minutes: 100
     strategy:
@@ -44,6 +44,7 @@ jobs:
           egress-policy: audit
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: v1.0.1-develop
           persist-credentials: false
       - name: Check out craft-i18n
         uses: storytold/craft-common-actions/actions/checkout-craft-i18n@main
