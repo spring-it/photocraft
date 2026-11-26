@@ -68,7 +68,7 @@ jobs:
   # active packaging workflow so it does not depend on the optional full CI workflow being enabled.
   windows-msi:
     name: Windows MSI (${{ matrix.arch }})
-    needs: windows-install-policy
+    needs: [windows-install-policy, lint]
     if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'v1.0.1-develop' }}
     runs-on: windows-latest
     timeout-minutes: 100
