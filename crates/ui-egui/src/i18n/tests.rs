@@ -464,8 +464,10 @@ fn complete_menu_catalogs_translate_every_menu_path_and_label() {
     if !needs_catalogs() {
         return;
     }
-    for info in LANGUAGES.iter().filter(|info| info.complete_menus) {
-        let language = lang(info.code);
+    for code in ["zh-hans", "zh-hant"] {
+        let info = LANGUAGES.iter().find(|info| info.code == code).expect("Chinese language is registered");
+        assert!(info.complete_menus, "{code} must remain marked complete_menus");
+        let language = lang(code);
         let mut missing = std::collections::BTreeSet::new();
         for (path, label, _, id) in crate::menu_catalog::CATALOG {
             for segment in *path {

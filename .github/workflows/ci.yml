@@ -289,7 +289,7 @@ jobs:
       CARGO_TERM_COLOR: always
       CARGO_INCREMENTAL: 0
       RUST_BACKTRACE: 1
-      CARGO_TARGET_DIR: D:\\t
+      CARGO_TARGET_DIR: D:\t
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
@@ -318,14 +318,14 @@ jobs:
       - name: Build and validate MSI
         shell: pwsh
         env:
-          CRAFT_FONTS_DIR: ${{ github.workspace }}\\craft-fonts
+          CRAFT_FONTS_DIR: ${{ github.workspace }}\craft-fonts
           CRAFT_FONTS_REQUIRED: "1"
-          DIST: ${{ github.workspace }}\\dist\\${{ matrix.arch }}
+          DIST: ${{ github.workspace }}\dist\${{ matrix.arch }}
         run: ./packaging/windows/package.ps1 -Arch ${{ matrix.arch }} -MsiOnly
       - name: Verify MSI-only output
         shell: pwsh
         env:
-          DIST: ${{ github.workspace }}\\dist\\${{ matrix.arch }}
+          DIST: ${{ github.workspace }}\dist\${{ matrix.arch }}
         run: |
           $files = @(Get-ChildItem -LiteralPath $env:DIST -File)
           if ($files.Count -ne 1 -or $files[0].Extension -ne '.msi') {
