@@ -8,6 +8,8 @@
     photocraft-<version>-windows-<arch>-portable.zip   photocraft.exe + photocraft-cli.exe + portable.txt
     photocraft-<version>-windows-<arch>-symbols.zip    photocraft.pdb + photocraft_cli.pdb (optional, for profilers)
 
+  Pass -MsiOnly to stop after MSI validation and signing; no ZIP archives are produced.
+
   The binaries link the C runtime statically (+crt-static), so neither the MSI nor the portable
   zip needs the Visual C++ redistributable. Signing is delegated to sign.ps1 (skipped with a
   warning when no signing secrets are set).
@@ -18,14 +20,15 @@
 
 .EXAMPLE
   pwsh packaging/windows/package.ps1 -Arch x64
-  pwsh packaging/windows/package.ps1 -Arch x86 -SkipBuild
+  pwsh packaging/windows/package.ps1 -Arch x86 -MsiOnly
   pwsh packaging/windows/package.ps1 -Arch arm64     # cross-compiled; needs the MSVC ARM64 build tools
 #>
 param(
   [ValidateSet('x64', 'x86', 'arm64')] [string] $Arch = 'x64',
   [switch] $SkipBuild,
   [switch] $Nightly,
-  [switch] $BuildOnly
+  [switch] $BuildOnly,
+  [switch] $MsiOnly
 )
 $ErrorActionPreference = 'Stop'
 if ($BuildOnly -and -not $Nightly) { throw '-BuildOnly is only for secret-free nightly compilation' }
@@ -181,6 +184,13 @@ Invoke-Native 'MSI shortcut icon validation (ICE50)' {
 # wix writes its debug symbols (.wixpdb) next to the MSI; keep them out of the release assets.
 Remove-Item -Force -ErrorAction SilentlyContinue ([IO.Path]::ChangeExtension($Msi, '.wixpdb'))
 & (Join-Path $PSScriptRoot 'sign.ps1') $Msi
+
+# Smoke-test the CLI before returning from an MSI-only build.
+if ($MsiOnly) {
+  Invoke-Native 'photocraft-cli --version' { & (Join-Path $Stage 'photocraft-cli.exe') --version }
+  Write-Output "MSI only: $Msi"
+  return
+}
 
 # ---- portable zip ------------------------------------------------------------------------------
 $Portable = Join-Path $TargetDir "windows-package\photocraft-$Version-windows-$Arch-portable"

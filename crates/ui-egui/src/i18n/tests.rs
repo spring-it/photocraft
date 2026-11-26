@@ -457,6 +457,41 @@ fn bundled_catalogs_are_consistent() {
     }
 }
 
+/// Languages advertised as complete must translate every visible menu path and label.
+/// This catches stale `complete_menus` claims when the upstream catalog moves or the menu grows.
+#[test]
+fn complete_menu_catalogs_translate_every_menu_path_and_label() {
+    if !needs_catalogs() {
+        return;
+    }
+    for code in ["zh-hans", "zh-hant"] {
+        let info = LANGUAGES.iter().find(|info| info.code == code).expect("Chinese language is registered");
+        assert!(info.complete_menus, "{code} must remain marked complete_menus");
+        let language = lang(code);
+        let mut missing = std::collections::BTreeSet::new();
+        for (path, label, _, id) in crate::menu_catalog::CATALOG {
+            for segment in *path {
+                if !has(language, segment) {
+                    missing.insert((*segment).to_owned());
+                }
+            }
+            if *label != "---" {
+                let translated = tr_id(language, id, label);
+                let has_own_id = language.owns("@id", id, translated);
+                if !has(language, label) && !has_own_id {
+                    missing.insert((*label).to_owned());
+                }
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "{} is marked complete_menus but lacks translations for: {}",
+            info.code,
+            missing.into_iter().collect::<Vec<_>>().join(", ")
+        );
+    }
+}
+
 #[test]
 fn language_cache_separates_catalogs_and_keys() {
     let cache = LangCache::<u8, String>::new();

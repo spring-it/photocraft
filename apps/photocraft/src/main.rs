@@ -628,8 +628,28 @@ fn main() -> eframe::Result {
     gpu_startup::configure(&mut options.wgpu_options.wgpu_setup, &plan, os, wanted_adapter, sentinel.clone(), gpu_note.clone());
     // Preferences › Performance › Low-Latency Drawing (#1343): without vsync a stroke shows about
     // 50 ms sooner; wgpu picks Immediate, else Mailbox, else Fifo by what the driver offers.
-    if prefs.performance.low_latency_drawing {
+    let low_latency = prefs.performance.low_latency_drawing;
+    if low_latency {
         options.wgpu_options.surface.present_mode = eframe::wgpu::PresentMode::AutoNoVsync;
+    }
+    // A transparent DX12 DirectComposition surface stays under the Windows desktop compositor.
+    // This avoids variable-refresh flicker on displays that otherwise switch refresh rates for
+    // PhotoCraft's input-driven repaints. Respect explicit swapchain overrides and the retry flag.
+    let presentation_override = std::env::var("WGPU_DX12_PRESENTATION_SYSTEM").ok();
+    let uses_hwnd_presentation = presentation_override.as_deref().is_some_and(|value| {
+        matches!(value.trim().to_ascii_lowercase().as_str(), "hwnd" | "dxgifromhwnd")
+    });
+    let compose_window = prefs.performance.compose_window
+        && std::env::var_os(gpu_startup::NO_COMPOSE_ENV).is_none()
+        && !uses_hwnd_presentation;
+    let composed = gpu_startup::composes_window(os, &plan, compose_window, low_latency);
+    if composed {
+        options.viewport = options.viewport.with_transparent(true);
+        if let eframe::egui_wgpu::WgpuSetup::CreateNew(create) = &mut options.wgpu_options.wgpu_setup {
+            create.instance_descriptor.backends = eframe::wgpu::Backends::DX12;
+            create.instance_descriptor.backend_options.dx12.presentation_system = eframe::wgpu::Dx12SwapchainKind::DxgiFromVisual;
+        }
+        log::info!("presenting through the Windows desktop compositor (DX12 DirectComposition)");
     }
     // Testers' present mode and frame latency overrides (#1343), after the preference.
     let present = presentation::Overrides::from_args_or_env(present_mode, frame_latency);
@@ -956,22 +976,31 @@ fn main() -> eframe::Result {
     }
     // Retry in a fresh process: winit event loops cannot be recreated reliably in-process.
     // Only renderer initialization failures qualify; never restart after editing has begun.
-    if retry_cpu && !app_created.load(std::sync::atomic::Ordering::Relaxed) && matches!(&result, Err(eframe::Error::Wgpu(_))) {
+    let startup_failed = !app_created.load(std::sync::atomic::Ordering::Relaxed) && matches!(&result, Err(eframe::Error::Wgpu(_)));
+    if startup_failed && (composed || retry_cpu) {
         let reason = result.as_ref().err().map(ToString::to_string).unwrap_or_default();
         if let Some(s) = sentinel.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
             s.finish();
         }
         if let Ok(exe) = std::env::current_exe() {
-            // `--safe-gpu` first: after a `--`, it would be a file name.
-            let launched = std::process::Command::new(exe)
-                .arg("--safe-gpu")
-                .args(std::env::args_os().skip(1))
-                .env_remove("WGPU_BACKEND")
-                .env("PHOTOCRAFT_GPU_STARTUP_FAILURE", &reason)
-                .spawn();
-            match launched {
+            let mut command = std::process::Command::new(exe);
+            match gpu_startup::startup_retry(composed) {
+                gpu_startup::StartupRetry::WithoutCompositor => {
+                    log::warn!("the composed window failed to initialize ({reason}); retrying without desktop composition");
+                    command.args(std::env::args_os().skip(1)).env(gpu_startup::NO_COMPOSE_ENV, "1");
+                }
+                gpu_startup::StartupRetry::Cpu => {
+                    // `--safe-gpu` first: after a `--`, it would be a file name.
+                    command
+                        .arg("--safe-gpu")
+                        .args(std::env::args_os().skip(1))
+                        .env_remove("WGPU_BACKEND")
+                        .env("PHOTOCRAFT_GPU_STARTUP_FAILURE", &reason);
+                }
+            }
+            match command.spawn() {
                 Ok(_) => return Ok(()),
-                Err(error) => log::error!("could not start CPU compatibility mode: {error}"),
+                Err(error) => log::error!("could not restart after the graphics start failed: {error}"),
             }
         }
     }

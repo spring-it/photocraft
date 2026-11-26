@@ -667,6 +667,12 @@ fn linux_only_preferences_show_only_on_linux() {
 }
 
 #[test]
+fn windows_only_preferences_show_only_on_windows() {
+    assert_eq!(is_hidden("performance.composeWindow"), !cfg!(target_os = "windows"));
+    assert!(WINDOWS_ONLY.contains(&"performance.composeWindow"));
+}
+
+#[test]
 fn the_default_pressure_curve_is_linear() {
     let c = PressureCurve::new(&Preferences::default().tools.pressure_curve);
     assert!(c.is_linear());

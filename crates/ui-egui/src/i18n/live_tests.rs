@@ -212,9 +212,13 @@ fn first_launch_renders_the_system_language_without_overwriting_auto() {
     if !needs_catalogs() {
         return;
     }
-    let cases: [(&[&str], &str); 14] = [
+    let cases: [(&[&str], &str); 18] = [
         (&["en-US"], "en"),
         (&["zh-CN"], "zh-hans"),
+        (&["zh-Hans-CN"], "zh-hans"),
+        (&["zh-SG"], "zh-hans"),
+        (&["zh-TW"], "zh-hant"),
+        (&["zh-HK"], "zh-hant"),
         (&["ja-JP"], "ja"),
         (&["ko-KR"], "ko"),
         (&["ru-RU"], "ru"),
@@ -231,7 +235,13 @@ fn first_launch_renders_the_system_language_without_overwriting_auto() {
     for (tags, code) in cases {
         assert_eq!(system::with_system_tags(tags, || Lang::from_pref("auto")), lang(code), "{tags:?}");
     }
-    let drawn: [(&[&str], &str); 3] = [(&["fr-CA"], "fr"), (&["ja-JP"], "ja"), (&["ru-RU"], "ru")];
+    let drawn: [(&[&str], &str); 5] = [
+        (&["fr-CA"], "fr"),
+        (&["ja-JP"], "ja"),
+        (&["ru-RU"], "ru"),
+        (&["zh-CN"], "zh-hans"),
+        (&["zh-TW"], "zh-hant"),
+    ];
     for (tags, code) in drawn {
         system::with_system_tags(tags, || {
             with_language(Lang::EN, || {

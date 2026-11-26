@@ -126,6 +126,9 @@ pub(super) fn rules(ctx: &egui::Context) -> Vec<SettingRule> {
             if prefs::LINUX_ONLY.contains(&path.as_str()) {
                 tweak(&mut rules, &path, |r| r.linux_only());
             }
+            if prefs::WINDOWS_ONLY.contains(&path.as_str()) && !cfg!(target_os = "windows") {
+                tweak(&mut rules, &path, |r| r.hidden());
+            }
             if read_at_launch(&path) {
                 tweak(&mut rules, &path, |r| r.restart());
             }
@@ -232,6 +235,7 @@ fn label_override(key: &str) -> Option<&'static str> {
         "pcraftFullComposite" => "Save Full-Size Composite in .pcraft Files",
         "generatorEnabled" => "Enable Generator",
         "lowLatencyDrawing" => "Low-Latency Drawing (vsync off, applies at next launch)",
+        "composeWindow" => "Use desktop composition to reduce display flicker",
         "sizeLimitMb" => "Scratch Size Limit (MB, 0 = No Limit)",
         "gpuMemoryMb" => "GPU Memory (MB, 0 = Automatic)",
         _ => return None,
@@ -291,6 +295,8 @@ pub(super) fn read_at_launch(path: &str) -> bool {
         "interface.systemTitleBar" => cfg!(all(not(target_arch = "wasm32"), not(target_os = "macos"))),
         // The WinTab context is opened once, when the window starts.
         "tools.tabletInput" => cfg!(target_os = "windows"),
+        // The swapchain and viewport are selected before the window opens.
+        "performance.composeWindow" => cfg!(target_os = "windows"),
         _ => false,
     }
 }
