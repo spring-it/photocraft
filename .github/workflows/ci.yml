@@ -315,6 +315,12 @@ jobs:
           components: ${{ steps.rust.outputs.components }}
       - name: Install WiX
         uses: storytold/craft-common-actions/actions/install-wix@main
+      - name: Audit translation coverage and Chinese menus
+        if: matrix.arch == 'x64'
+        shell: pwsh
+        run: |
+          cargo xtask i18n-report
+          cargo test -p photocraft-ui-egui --locked --lib complete_menu_catalogs_translate_every_menu_path_and_label
       - name: Build and validate MSI
         shell: pwsh
         env:

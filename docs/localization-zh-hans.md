@@ -74,6 +74,6 @@ label layout and platform-specific shortcuts visually on each target platform,
 and verify web glyph coverage separately.
 
 When English labels change, update their source keys and translations together,
-preserving contexts and placeholders. `cargo xtask i18n-coverage` (also the last
+preserving contexts and placeholders. `cargo xtask i18n-report` (also the last
 step of `cargo xtask ci`) lists the keys still missing. Review changed source
 meanings against the current English UI.
