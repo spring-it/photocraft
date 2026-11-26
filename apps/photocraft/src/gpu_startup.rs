@@ -478,6 +478,35 @@ pub fn keep_marker_after_run(result: &eframe::Result) -> bool {
     matches!(result, Err(eframe::Error::Wgpu(_)))
 }
 
+/// Whether this launch should present through the Windows desktop compositor. A transparent
+/// DirectComposition swapchain keeps input-driven repaints under DWM instead of allowing a
+/// variable-refresh display to switch refresh rates on every repaint.
+pub fn composes_window(os: Os, plan: &Plan, enabled: bool, low_latency: bool) -> bool {
+    os == Os::Windows
+        && enabled
+        && !low_latency
+        && plan.env.is_none()
+        && matches!(plan.backend, GpuBackend::Auto | GpuBackend::Dx12)
+}
+
+/// Set only on the fallback process after a composed window failed to initialize.
+pub const NO_COMPOSE_ENV: &str = "PHOTOCRAFT_NO_COMPOSE";
+
+/// The first retry gives the normal window surface a chance before falling back to CPU rendering.
+#[derive(Debug, PartialEq, Eq)]
+pub enum StartupRetry {
+    WithoutCompositor,
+    Cpu,
+}
+
+pub fn startup_retry(composed: bool) -> StartupRetry {
+    if composed {
+        StartupRetry::WithoutCompositor
+    } else {
+        StartupRetry::Cpu
+    }
+}
+
 impl Sentinel {
     /// Open (creating) the marker in `dir` and lock it. Returns what a previous start left and,
     /// unless another instance holds the lock or the directory isn't writable, this start's

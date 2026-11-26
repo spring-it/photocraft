@@ -578,7 +578,7 @@ pub use shortcuts::{
 };
 use store::read_lenient;
 pub use store::{InvalidPref, PREFS_VERSION, PrefsStore, read_section};
-pub use validate::{HIDDEN_UNTIL_IMPLEMENTED, LINUX_ONLY, SECTIONS, choices, gpu_adapter_matches, is_color, is_hidden, parse_hex, range};
+pub use validate::{HIDDEN_UNTIL_IMPLEMENTED, LINUX_ONLY, SECTIONS, WINDOWS_ONLY, choices, gpu_adapter_matches, is_color, is_hidden, parse_hex, range};
 #[path = "prefs/theme_ids.rs"]
 pub mod theme_ids;
 use validate::{check_value, get_path, keyed, set_path};
@@ -806,6 +806,10 @@ pub struct Performance {
     /// missing. Frames are capped at 240 fps. Off (the default): vsync, smooth but late. Desktop
     /// only.
     pub low_latency_drawing: bool,
+    /// Present through the Windows desktop compositor to reduce flicker on variable-refresh
+    /// displays (applies at next launch; Windows only). Skipped under Low-Latency Drawing and for
+    /// explicit Vulkan, OpenGL or CPU rendering.
+    pub compose_window: bool,
     /// Linux display server (applies at next launch; see [`LinuxDisplayServer`]).
     pub linux_display_server: LinuxDisplayServer,
     /// GPU memory the canvas compositor may hold for layer pages and effect maps, in MB; 0 is
@@ -876,6 +880,7 @@ impl Default for Performance {
             gpu_adapter: String::new(),
             low_resolution_previews: true,
             low_latency_drawing: false,
+            compose_window: true,
             linux_display_server: LinuxDisplayServer::Auto,
             gpu_memory_mb: 0,
             effect_cache_mb: 768,

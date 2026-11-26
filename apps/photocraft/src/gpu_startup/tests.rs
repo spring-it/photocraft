@@ -31,6 +31,28 @@ fn low_latency_drawing_is_read_before_the_window_opens_and_defaults_off() {
 }
 
 #[test]
+fn the_window_is_composed_only_for_compatible_windows_launches() {
+    let plan = |backend, env: Option<&str>| Plan { backend, env: env.map(str::to_string), reason: None, remember: false };
+    let default = default_performance();
+    assert!(composes_window(Os::Windows, &plan(Auto, None), default.compose_window, false));
+    assert!(composes_window(Os::Windows, &plan(Dx12, None), true, false));
+    assert!(!composes_window(Os::Windows, &plan(Auto, None), false, false), "turned off");
+    assert!(!composes_window(Os::Windows, &plan(Auto, None), true, true), "Low-Latency Drawing needs the bypass");
+    for backend in [Vulkan, Gl, Cpu] {
+        assert!(!composes_window(Os::Windows, &plan(backend, None), true, false), "{backend:?} was explicitly selected");
+    }
+    assert!(!composes_window(Os::Windows, &plan(Auto, Some("vulkan")), true, false), "WGPU_BACKEND takes precedence");
+    assert!(!composes_window(Os::Mac, &plan(Auto, None), true, false));
+    assert!(!composes_window(Os::Other, &plan(Auto, None), true, false));
+}
+
+#[test]
+fn a_failed_composed_start_retries_without_the_compositor_before_cpu() {
+    assert_eq!(startup_retry(true), StartupRetry::WithoutCompositor);
+    assert_eq!(startup_retry(false), StartupRetry::Cpu);
+}
+
+#[test]
 fn display_server_preference_is_read_before_the_window_opens() {
     use photocraft_engine::prefs::LinuxDisplayServer;
     let dir = temp_dir("display-server");
