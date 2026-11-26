@@ -25,7 +25,8 @@ param(
   [ValidateSet('x64', 'x86', 'arm64')] [string] $Arch = 'x64',
   [switch] $SkipBuild,
   [switch] $Nightly,
-  [switch] $BuildOnly
+  [switch] $BuildOnly,
+  [switch] $MsiOnly
 )
 $ErrorActionPreference = 'Stop'
 if ($BuildOnly -and -not $Nightly) { throw '-BuildOnly is only for secret-free nightly compilation' }
@@ -181,6 +182,13 @@ Invoke-Native 'MSI shortcut icon validation (ICE50)' {
 # wix writes its debug symbols (.wixpdb) next to the MSI; keep them out of the release assets.
 Remove-Item -Force -ErrorAction SilentlyContinue ([IO.Path]::ChangeExtension($Msi, '.wixpdb'))
 & (Join-Path $PSScriptRoot 'sign.ps1') $Msi
+
+# The requested release consists only of the MSI. Return after its validation and signing so no
+# portable archive or debug-symbol archive is emitted.
+if ($MsiOnly) {
+  Write-Output "MSI only: $Msi"
+  return
+}
 
 # ---- portable zip ------------------------------------------------------------------------------
 $Portable = Join-Path $TargetDir "windows-package\photocraft-$Version-windows-$Arch-portable"
